@@ -43,6 +43,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+#if !SILVERLIGHT
+using System.Threading.Tasks;
+#endif
 
 namespace Moq
 {
@@ -69,6 +72,17 @@ namespace Moq
 				return this.defaultValues[valueType];
 			}
 
+#if SILVERLIGHT
+			return GetTypeDefault(valueType);
+#else
+			return valueType == typeof(Task) || valueType.IsSubclassOf(typeof(Task))
+				? GetTaskTypeDefault(valueType)
+				: GetTypeDefault(valueType);
+#endif
+		}
+
+		private static object GetTypeDefault(Type valueType)
+		{
 			return valueType.IsValueType ? GetValueTypeDefault(valueType) : GetReferenceTypeDefault(valueType);
 		}
 
@@ -115,5 +129,29 @@ namespace Moq
 
 			return Activator.CreateInstance(valueType);
 		}
+
+#if !SILVERLIGHT
+
+		private static object GetTaskTypeDefault(Type taskType)
+		{
+			if ( taskType == typeof(Task) )
+				return CreateTask<int>();	// Task<int> inherits Task
+
+			var createMethod = typeof(EmptyDefaultValueProvider)
+				.GetMethod("CreateTask", BindingFlags.NonPublic | BindingFlags.Static)
+				.MakeGenericMethod(taskType.GetGenericArguments()[0]);
+
+			return createMethod.Invoke(null, null);
+		}
+
+		private static object CreateTask<T>()
+		{
+			var src = new TaskCompletionSource<T>();
+			src.SetResult((T)GetTypeDefault(typeof(T)));
+
+			return src.Task;
+		}
+
+#endif
 	}
 }
